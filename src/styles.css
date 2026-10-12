@@ -156,17 +156,17 @@ tbody tr:hover { background: #fbfcfe; }
 .table-wrap.compact td { padding: 8px 9px; }
 .table-wrap.compact .table-count { padding: 6px 9px; }
 
-/* Dạng lưới ngang dọc cho danh sách nhiều dòng/ít cột (như Sơ đồ ghế còn trống FN2) */
-.table-wrap:has(table th:only-child) {
+/* Dạng lưới ngang dọc cho danh sách nhiều dòng/ít cột (chỉ áp dụng cho Sơ đồ ghế còn trống FN2) */
+.table-wrap.seat-grid {
   max-height: 380px;
   background: #fcfdfe;
 }
-.table-wrap table:has(th:only-child) {
+.table-wrap.seat-grid table {
   display: flex;
   flex-direction: column;
   width: 100%;
 }
-.table-wrap table:has(th:only-child) thead {
+.table-wrap.seat-grid table thead {
   display: block;
   width: 100%;
   position: sticky;
@@ -175,11 +175,11 @@ tbody tr:hover { background: #fbfcfe; }
   background: #f8f9fc;
   border-bottom: 1px solid #edf0f5;
 }
-.table-wrap table:has(th:only-child) thead tr {
+.table-wrap.seat-grid table thead tr {
   display: block;
   width: 100%;
 }
-.table-wrap table:has(th:only-child) thead th {
+.table-wrap.seat-grid table thead th {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -190,7 +190,7 @@ tbody tr:hover { background: #fbfcfe; }
   letter-spacing: .4px;
   box-shadow: none;
 }
-.table-wrap table:has(th:only-child) thead th::after {
+.table-wrap.seat-grid table thead th::after {
   content: 'SƠ ĐỒ LƯỚI';
   font-size: 7.5px;
   color: #6366f1;
@@ -200,7 +200,7 @@ tbody tr:hover { background: #fbfcfe; }
   background: #eef2ff;
   letter-spacing: .3px;
 }
-.table-wrap table:has(th:only-child) tbody {
+.table-wrap.seat-grid table tbody {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 8px;
@@ -209,7 +209,7 @@ tbody tr:hover { background: #fbfcfe; }
   overflow-y: auto;
   max-height: 310px;
 }
-.table-wrap table:has(th:only-child) tbody tr {
+.table-wrap.seat-grid table tbody tr {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -220,13 +220,13 @@ tbody tr:hover { background: #fbfcfe; }
   transition: all .15s ease;
   box-shadow: 0 1px 2px rgba(0,0,0,.02);
 }
-.table-wrap table:has(th:only-child) tbody tr:hover {
+.table-wrap.seat-grid table tbody tr:hover {
   background: #eff6ff;
   border-color: #6366f1;
   transform: translateY(-1px);
   box-shadow: 0 3px 6px rgba(99,102,241,.12);
 }
-.table-wrap table:has(th:only-child) tbody td {
+.table-wrap.seat-grid table tbody td {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -240,7 +240,7 @@ tbody tr:hover { background: #fbfcfe; }
   max-width: none;
   letter-spacing: .3px;
 }
-.table-wrap table:has(th:only-child) tbody tr:hover td {
+.table-wrap.seat-grid table tbody tr:hover td {
   color: #4338ca;
 }
 .status-list { display: flex; flex-direction: column; gap: 13px; margin: 13px 0 17px; }

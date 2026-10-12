@@ -403,6 +403,34 @@ function formatValue(value, key) {
     return new Intl.NumberFormat('vi-VN').format(value) + ' ₫';
   }
   if (typeof value === 'number') return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value);
+  if (key === 'HangHoiVien') {
+    let tierColor = '#475569';
+    let tierBg = '#f1f5f9';
+    let tierBorder = '#cbd5e1';
+    if (value === 'Hạng Kim Cương') {
+      tierColor = '#0284c7'; tierBg = '#e0f2fe'; tierBorder = '#7dd3fc';
+    } else if (value === 'Hạng Vàng') {
+      tierColor = '#b45309'; tierBg = '#fef3c7'; tierBorder = '#fde68a';
+    } else if (value === 'Hạng Bạc') {
+      tierColor = '#334155'; tierBg = '#f8fafc'; tierBorder = '#cbd5e1';
+    }
+    return (
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '3px 10px',
+        borderRadius: '6px',
+        fontSize: '11px',
+        fontWeight: 600,
+        color: tierColor,
+        background: tierBg,
+        border: `1px solid ${tierBorder}`,
+        whiteSpace: 'nowrap'
+      }}>
+        {value}
+      </span>
+    );
+  }
   return String(value);
 }
 
@@ -410,8 +438,9 @@ function DataTable({ rows, empty = 'Không có bản ghi phù hợp.', compact =
   const list = rows || [];
   const columns = list.length ? Object.keys(list[0]) : [];
   if (!columns.length) return <div className="table-empty"><Database size={16} />{empty}</div>;
+  const isSeatGrid = columns.length === 1 && String(columns[0]).toLowerCase() === 'soghe';
   return (
-    <div className={'table-wrap' + (compact ? ' compact' : '')}>
+    <div className={'table-wrap' + (compact ? ' compact' : '') + (isSeatGrid ? ' seat-grid' : '')}>
       <table>
         <thead><tr>{columns.map((column) => <th key={column}>{column.replace(/([a-z])([A-Z])/g, '$1 $2')}</th>)}</tr></thead>
         <tbody>{list.map((row, index) => <tr key={index}>{columns.map((column) => <td key={column}>{formatValue(row[column], column)}</td>)}</tr>)}</tbody>
