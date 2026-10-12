@@ -41,7 +41,7 @@ Mọi chức năng trên giao diện web (`http://localhost:5173`) đều đư�
   1. *Bước 1 & 2:* Xem mô tả nghiệp vụ và câu lệnh `EXEC dbo.SP1_DATCHO_TAOVE ...`.
   2. *Bước 3:* Quan sát bảng `Chuyến bay` (lưu ý số ghế trống ban đầu, ví dụ `SoGheTrong = 179`).
   3. *Bước 4:* Điền form kiểm thử:
-     * **Chuyến bay:** Chọn chuyến bay còn ghế (ví dụ: `VN716`).
+     * **Chuyến bay:** Chuyến bay còn ghế mở đặt chỗ (mặc định sẵn `QH156`).
      * **Hành khách:** Chọn `HK01` (hoặc hành khách bất kỳ).
      * **Mã vé mới:** Điền `VE99` (hoặc mã vé chưa tồn tại).
      * **Mã đặt chỗ:** Điền `PNR99XYZ`.

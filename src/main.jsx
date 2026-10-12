@@ -94,7 +94,7 @@ const workflows = {
   'tg3-test': {
     code: 'TG3', title: 'TG3 · Kiểm tra định mức 30 giờ/tuần', category: 'Trigger', icon: ShieldCheck,
     description: 'Thử thêm một batch 4 ca, tổng 32 giờ cho NV01 trong cùng tuần. Trigger TG3 phải trả lỗi 51004 và rollback toàn bộ batch, không để lại phân công thử.',
-    action: 'Thử batch vượt định mức', sql: "BEGIN TRY\n  BEGIN TRANSACTION;\n  INSERT dbo.PHANCONG(MaChuyenBay,MaNV,VaiTro,GioBatDau,GioKetThuc) VALUES\n    ('QH156','NV01',N'Cơ trưởng','2026-10-15 00:00','2026-10-15 08:00'),\n    ('QH312','NV01',N'Cơ trưởng','2026-10-16 00:00','2026-10-16 08:00'),\n    ('QH402','NV01',N'Cơ trưởng','2026-10-16 09:00','2026-10-16 17:00'),\n    ('QH510','NV01',N'Cơ trưởng','2026-10-17 00:00','2026-10-17 08:00');\n  COMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\n  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;\n  THROW;\nEND CATCH;",
+    action: 'Thử batch vượt định mức', sql: "BEGIN TRY\n  BEGIN TRANSACTION;\n  INSERT dbo.PHANCONG(MaChuyenBay,MaNV,VaiTro,GioBatDau,GioKetThuc) VALUES\n    ('QH156','NV01',N'Cơ trưởng','2026-10-15 00:00','2026-10-15 08:00'),\n    ('QH312','NV01',N'Cơ trưởng','2026-10-16 00:00','2026-10-16 08:00'),\n    ('QH402','NV01',N'Cơ trưởng','2026-10-16 09:00','2026-10-16 17:00'),\n    ('VU102','NV01',N'Cơ trưởng','2026-10-17 00:00','2026-10-17 08:00');\n  COMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\n  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;\n  THROW;\nEND CATCH;",
     fields: [],
   },
   'tg4-test': {
@@ -316,26 +316,35 @@ let activeRole = 'admin';
 function first(items, value) { return (items || []).find((item) => item.MaChuyenBay === value) || (items || [])[0]; }
 function firstValue(items, key, fallback) { return (items && items[0] && items[0][key]) || fallback; }
 
-function initialParams(id, options) {
+function initialParams(id, options = {}) {
+  const opts = options || {};
+  let defaultFlightCode = 'QH156';
+  if (id === 'report-manifest') defaultFlightCode = 'VN214';
+  else if (id === 'sp5-crew') defaultFlightCode = 'QH510';
+  else if (id === 'sp2-status') defaultFlightCode = 'VN522';
+  else if (id === 'tg2-test') defaultFlightCode = 'VN522';
+
   const flight = id === 'tg2-test'
-    ? first(options.tg2Flights, 'VN601')
-    : first(options.flights, id === 'sp5-crew' ? 'QH510' : 'VN716');
+    ? first(opts.tg2Flights, 'VN522')
+    : first(opts.flights, defaultFlightCode);
+
   const fields = workflows[id].fields;
   const values = {};
   for (const field of fields) {
-    if (field.source === 'flights') values[field.key] = flight && flight.MaChuyenBay;
+    if (field.source === 'flights') values[field.key] = flight && flight.MaChuyenBay || defaultFlightCode;
+    else if (field.source === 'tg2Flights') values[field.key] = firstValue(opts.tg2Flights, 'MaChuyenBay', 'VN522');
     else if (field.source === 'airports') values[field.key] = field.key === 'MaSanBayDi' ? 'SGN' : 'HAN';
-    else if (field.source === 'passengers') values[field.key] = firstValue(options.passengers, 'MaHanhKhach', 'HK01');
+    else if (field.source === 'passengers') values[field.key] = firstValue(opts.passengers, 'MaHanhKhach', 'HK01');
     else if (field.source === 'employees') values[field.key] = 'NV01';
-    else if (field.source === 'aircraft') values[field.key] = firstValue(options.aircraft, 'MaMayBay', 'MB01');
-    else if (field.source === 'scheduledAircraft') values[field.key] = firstValue(options.scheduledAircraft, 'MaMayBay', '');
-    else if (field.source === 'tickets') values[field.key] = firstValue(options.tickets, 'MaVe', 'VE01');
-    else if (field.source === 'activeTickets') values[field.key] = firstValue((options.tickets || []).filter((row) => row.TrangThaiVe !== 'Đã hủy'), 'MaVe', 'VE01');
+    else if (field.source === 'aircraft') values[field.key] = firstValue(opts.aircraft, 'MaMayBay', 'MB01');
+    else if (field.source === 'scheduledAircraft') values[field.key] = firstValue(opts.scheduledAircraft, 'MaMayBay', 'MB05');
+    else if (field.source === 'tickets') values[field.key] = firstValue(opts.tickets, 'MaVe', 'VE01');
+    else if (field.source === 'activeTickets') values[field.key] = firstValue((opts.tickets || []).filter((row) => row.TrangThaiVe !== 'Đã hủy'), 'MaVe', 'VE02');
     else if (field.key === 'MaVe') values[field.key] = 'DEMO' + Math.random().toString(36).slice(2, 9).toUpperCase();
     else if (field.key === 'MaDatCho') values[field.key] = 'PNR' + Math.random().toString(36).slice(2, 9).toUpperCase();
-    else if (field.key === 'SoGhe') values[field.key] = '40A';
+    else if (field.key === 'SoGhe') values[field.key] = id === 'tg1-book' ? '10B' : '10A';
     else if (field.key === 'HangGhe') values[field.key] = 'Phổ thông';
-    else if (field.key === 'GiaVeMoi') values[field.key] = String(Math.max(1, Number(flight && flight.GiaVeThuongGia || 1000000) + 100000));
+    else if (field.key === 'GiaVeMoi') values[field.key] = String(Math.max(1, Number(flight && flight.GiaVeThuongGia || 6960000) + 100000));
     else if (field.key === 'TrangThaiMoi') values[field.key] = id === 'tg2-test' ? 'Đã hủy' : 'Delay';
     else if (field.key === 'LyDo') values[field.key] = id === 'tg2-test' ? 'Kiểm thử trigger TG2' : 'Điều chỉnh kế hoạch khai thác';
     else if (field.key === 'TuNgay') values[field.key] = '2026-10-01';
@@ -781,6 +790,13 @@ function Workflow({ id, options, setActive, currentRole }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params),
       });
       setRunResult(response.result || { recordsets: [] });
+      if (['sp1-book', 'tg1-book'].includes(id)) {
+        setParams((prev) => ({
+          ...prev,
+          MaVe: 'DEMO' + Math.random().toString(36).slice(2, 9).toUpperCase(),
+          MaDatCho: 'PNR' + Math.random().toString(36).slice(2, 9).toUpperCase(),
+        }));
+      }
     } catch (runError) {
       setError(runError);
     }
