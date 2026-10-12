@@ -308,3 +308,82 @@ Mọi chức năng trên giao diện web (`http://localhost:5173`) đều đư�
 | **51006** | `TG5_ChanXoaMayBayCoLich` | Chặn xóa máy bay đang có lịch bay trong tương lai |
 | **51007** | `TG5_ChanXoaMayBayCoLich` | Chặn xóa máy bay đã có lịch sử khai thác trong quá khứ |
 | **51101** – **51105** | `SP1` – `SP5` | Các lỗi kiểm tra tham số đầu vào của Stored Procedures |
+
+---
+
+# PHẦN 6: KIỂM THỬ PHÂN QUYỀN VAI TRÒ (RBAC - ROLE-BASED ACCESS CONTROL)
+
+Hệ thống triển khai mô hình phân quyền bảo mật 3 lớp đồng bộ (**Database Role** ➔ **Backend API Middleware 403** ➔ **Frontend Menu Filtering & Role Switcher**).
+
+### 👥 Danh sách 4 vai trò chuẩn hóa trong hệ thống:
+1. **Quản trị viên (`admin` / `QLCB_QuanTri`):** Toàn quyền kiểm soát hệ thống, quản trị dữ liệu, kiểm thử trigger và xem toàn bộ báo cáo tài chính.
+2. **Điều phối viên (`flightops` / `QLCB_DieuPhoi`):** Điều hành bay, phân công tổ bay, cập nhật delay/hủy, xem các báo cáo khai thác (R2 Manifest, R3 Tổ bay, R5 Hiệu suất). *Không được xem báo cáo doanh thu tài chính (R4).*
+3. **Nhân viên bán vé (`ticketing` / `QLCB_BanVe`):** Tra cứu chuyến bay, đặt chỗ, hủy vé/hoàn ghế và in vé điện tử (R1). *Không được điều phối chuyến bay hoặc xem báo cáo tài chính/tổ bay.*
+4. **Khách hàng (`customer` / `QLCB_KhachHang`):** Tra cứu chuyến bay công khai, sơ đồ ghế trống, tự đặt vé và tra cứu hạng hội viên. *Tuyệt đối bị chặn khỏi các báo cáo mật (R2, R3, R4, R5), trigger nội bộ và dữ liệu máy bay/nhân sự.*
+
+---
+
+### TEST CASE 21: Kiểm thử Khách hàng (Customer) bị chặn xem Báo cáo mật
+* **Mục tiêu:** Chứng minh khách hàng không thể xem danh sách hành khách (R2 Manifest - chứa CCCD/hộ chiếu), doanh thu (R4) hoặc các mục quản trị.
+* **Các bước thực hiện:**
+  1. Ở góc dưới Sidebar bên trái, tại ô **Vai trò mô phỏng**, chọn **`KH · Khách hàng`**.
+  2. Quan sát menu điều hướng:
+     * Menu tự động thu gọn, nhóm **Báo cáo** chỉ còn hiển thị duy nhất **R1 · Vé điện tử**.
+     * Toàn bộ các mục **R2 (Manifest)**, **R3 (Tổ bay)**, **R4 (Doanh thu)**, **R5 (Hiệu suất)** và các trigger `TG1`–`TG5` **đều biến mất khỏi menu**.
+  3. Kiểm tra bảo mật tầng API (Direct Access Prevention):
+     * Nếu cố tình truy cập trực tiếp URL API báo cáo doanh thu:
+       ```bash
+       curl -H "x-user-role: customer" http://localhost:3001/api/workflows/report-revenue/state
+       ```
+     * **Kết quả kỳ vọng:** Hệ thống từ chối với mã lỗi **`HTTP 403 Forbidden`**:
+       ```json
+       {
+         "ok": false,
+         "error": {
+           "number": 403,
+           "code": "FORBIDDEN",
+           "message": "Vai trò [customer] không có quyền truy cập chức năng 'report-revenue'."
+         }
+       }
+       ```
+
+---
+
+### TEST CASE 22: Kiểm thử che chắn dữ liệu nhạy cảm trên Dashboard của Khách hàng
+* **Mục tiêu:** Đảm bảo khách hàng xem trang chủ không thấy các số liệu tài chính hay quy mô nhân sự/đội bay nội bộ.
+* **Các bước thực hiện:**
+  1. Giữ vai trò **`KH · Khách hàng`**, nhấn vào mục **Trang chủ** trên menu.
+  2. **Kết quả kỳ vọng:**
+     * Lời chào hiển thị: `Xin chào, Quý khách hàng ✦`.
+     * 4 thẻ số liệu được điều chỉnh riêng cho khách hàng: `Chuyến bay đang mở`, `Sân bay kết nối`, `Dịch vụ tra cứu 24/7`, `Tích lũy hội viên FN1`.
+     * Các số liệu nội bộ (tổng vé bán, tổng hành khách, tổng số máy bay) hoàn toàn không xuất hiện.
+     * Nút "Truy cập nhanh" chỉ hiển thị các tác vụ khách hàng được phép: `Tra cứu chuyến bay`, `Đặt vé trực tuyến`, `Sơ đồ ghế trống`, `Hạng hội viên`.
+
+---
+
+### TEST CASE 23: Kiểm thử Nhân viên bán vé (Ticketing)
+* **Các bước thực hiện:**
+  1. Tại ô **Vai trò mô phỏng**, chọn **`BV · Nhân viên bán vé`**.
+  2. Kiểm tra quyền được cấp: Sử dụng bình thường chức năng **Đặt chỗ & bán vé (SP1)**, **Hủy vé / hoàn ghế (TG1)**, **Vé điện tử (R1)**.
+  3. Kiểm tra quyền bị cấm:
+     * Chức năng **Cập nhật trạng thái chuyến (SP2)** và **Báo cáo doanh số (R4)** bị ẩn khỏi menu.
+     * Thử gọi API SP2 với header `x-user-role: ticketing` ➔ Nhận mã **`HTTP 403 Forbidden`**.
+
+---
+
+### TEST CASE 24: Kiểm thử Điều phối viên (FlightOps)
+* **Các bước thực hiện:**
+  1. Tại ô **Vai trò mô phỏng**, chọn **`ĐP · Điều phối viên`**.
+  2. Kiểm tra quyền được cấp: Sử dụng bình thường **Trạng thái chuyến (SP2)**, **Phân công tổ bay (SP5)**, **Passenger manifest (R2)**, **Phân công theo ngày (R3)**, **Hiệu suất khai thác (R5)**.
+  3. Kiểm tra quyền bị cấm:
+     * Mục **Doanh số đường bay (R4)** và **Cập nhật giá vé** bị ẩn hoàn toàn khỏi giao diện.
+     * Thử gọi API R4 với header `x-user-role: flightops` ➔ Nhận mã **`HTTP 403 Forbidden`**.
+
+---
+
+### TEST CASE 25: Kiểm thử Quản trị viên (Admin)
+* **Các bước thực hiện:**
+  1. Tại ô **Vai trò mô phỏng**, chọn **`QT · Quản trị viên`**.
+  2. **Kết quả kỳ vọng:**
+     * Toàn bộ 20 workflow (SP1–SP5, TG1–TG5, FN1–FN3, CS1–CS2, R1–R5, Quản trị giá vé và máy bay) đều hiển thị đầy đủ trên menu.
+     * Mọi lệnh thực thi và báo cáo tài chính đều được phép thực hiện (HTTP 200).

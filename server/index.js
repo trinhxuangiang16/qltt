@@ -21,6 +21,52 @@ function reportError(res, error) {
   res.status(500).json({ ok: false, error: sqlError(error) });
 }
 
+const ROLE_PERMISSIONS = {
+  customer: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'fn1-membership',
+    'sp1-book',
+    'report-ticket',
+  ],
+  ticketing: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'fn1-membership',
+    'sp1-book',
+    'tg1-cancel',
+    'report-ticket',
+  ],
+  flightops: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'sp2-status',
+    'sp5-crew',
+    'aircraft-maintenance',
+    'fn3-aircraft',
+    'cs1-delay',
+    'cs2-payroll',
+    'report-manifest',
+    'report-crew',
+    'report-performance',
+  ],
+  admin: ['*'],
+};
+
+function getUserRole(req) {
+  const raw = String(req.headers['x-user-role'] || 'customer').toLowerCase().trim();
+  return ['customer', 'ticketing', 'flightops', 'admin'].includes(raw) ? raw : 'customer';
+}
+
+function hasPermission(role, workflowId) {
+  if (role === 'admin') return true;
+  const list = ROLE_PERMISSIONS[role] || [];
+  return list.includes(workflowId);
+}
+
 function required(value, label) {
   if (value === undefined || value === null || String(value).trim() === '') {
     const error = new Error('Vui lòng nhập ' + label + '.');
@@ -107,16 +153,47 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-app.get('/api/options', async (_req, res) => {
+app.get('/api/auth/roles', (_req, res) => {
+  res.json({
+    roles: [
+      { id: 'admin', label: 'Quản trị viên', badge: 'QT', desc: 'Toàn quyền hệ thống & Báo cáo' },
+      { id: 'flightops', label: 'Điều phối viên', badge: 'ĐP', desc: 'Điều phối bay & Tổ bay' },
+      { id: 'ticketing', label: 'Nhân viên bán vé', badge: 'BV', desc: 'Bán vé & Hoàn vé' },
+      { id: 'customer', label: 'Khách hàng', badge: 'KH', desc: 'Tra cứu & Đặt vé cá nhân' },
+    ],
+    permissions: ROLE_PERMISSIONS,
+  });
+});
+
+app.get('/api/options', async (req, res) => {
   try {
-    res.json(await getOptions(await getPool()));
+    const role = getUserRole(req);
+    const pool = await getPool();
+    const options = await getOptions(pool);
+
+    // Nếu là Customer: Chỉ xem danh mục công khai (sân bay, chuyến, vé cơ bản), ẩn thông tin nhân sự/nội bộ
+    if (role === 'customer') {
+      return res.json({
+        airports: options.airports,
+        flights: options.flights,
+        passengers: options.passengers,
+        tickets: options.tickets,
+        employees: [],
+        aircraft: [],
+        tg2Flights: [],
+        scheduledAircraft: [],
+      });
+    }
+
+    res.json(options);
   } catch (error) {
     reportError(res, error);
   }
 });
 
-app.get('/api/dashboard', async (_req, res) => {
+app.get('/api/dashboard', async (req, res) => {
   try {
+    const role = getUserRole(req);
     const pool = await getPool();
     const [counts, flights, mix] = await Promise.all([
       query(pool, `SELECT (SELECT COUNT(*) FROM dbo.CHUYENBAY) AS ChuyenBay,
@@ -129,6 +206,16 @@ app.get('/api/dashboard', async (_req, res) => {
         ORDER BY cb.GioKhoiHanhDK`),
       query(pool, `SELECT TrangThai, COUNT(*) AS SoChuyen FROM dbo.CHUYENBAY GROUP BY TrangThai ORDER BY TrangThai`),
     ]);
+
+    // Customer: Chỉ thấy số lượng chuyến bay khai thác công khai, ẩn các chỉ số kinh doanh/hành khách/máy bay
+    if (role === 'customer') {
+      return res.json({
+        counts: { ChuyenBay: counts[0].ChuyenBay, VeBay: null, HanhKhach: null, MayBay: null },
+        flights,
+        mix,
+      });
+    }
+
     res.json({ counts: counts[0], flights, mix });
   } catch (error) {
     reportError(res, error);
@@ -293,6 +380,17 @@ async function workflowState(id, p) {
 
 app.get('/api/workflows/:id/state', async (req, res) => {
   try {
+    const role = getUserRole(req);
+    if (!hasPermission(role, req.params.id)) {
+      return res.status(403).json({
+        ok: false,
+        error: {
+          number: 403,
+          code: 'FORBIDDEN',
+          message: `Vai trò [${role}] không có quyền truy cập chức năng '${req.params.id}'.`,
+        },
+      });
+    }
     const tables = await workflowState(req.params.id, req.query);
     res.json({ tables, refreshedAt: new Date().toISOString() });
   } catch (error) {
@@ -464,6 +562,17 @@ async function runReport(id, p, pool) {
 
 app.post('/api/workflows/:id/run', async (req, res) => {
   try {
+    const role = getUserRole(req);
+    if (!hasPermission(role, req.params.id)) {
+      return res.status(403).json({
+        ok: false,
+        error: {
+          number: 403,
+          code: 'FORBIDDEN',
+          message: `Vai trò [${role}] không có quyền thực thi chức năng '${req.params.id}'.`,
+        },
+      });
+    }
     const result = await executeWorkflow(req.params.id, req.body || {});
     res.json({ ok: true, result, completedAt: new Date().toISOString() });
   } catch (error) {

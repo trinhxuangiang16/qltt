@@ -235,6 +235,84 @@ const navGroups = [
   ] },
 ];
 
+const ROLES = {
+  admin: {
+    id: 'admin',
+    label: 'Quản trị viên',
+    badge: 'QT',
+    roleClass: 'role-admin',
+    roleTitle: 'Toàn quyền quản trị',
+    desc: 'Xem toàn bộ báo cáo, kiểm thử trigger & cấu hình',
+  },
+  flightops: {
+    id: 'flightops',
+    label: 'Điều phối viên',
+    badge: 'ĐP',
+    roleClass: 'role-flightops',
+    roleTitle: 'Điều phối khai thác',
+    desc: 'Cập nhật chuyến bay, tổ bay & báo cáo vận hành',
+  },
+  ticketing: {
+    id: 'ticketing',
+    label: 'Nhân viên bán vé',
+    badge: 'BV',
+    roleClass: 'role-ticketing',
+    roleTitle: 'Bộ phận bán vé',
+    desc: 'Đặt chỗ, xuất vé, hủy vé & xem vé điện tử',
+  },
+  customer: {
+    id: 'customer',
+    label: 'Khách hàng',
+    badge: 'KH',
+    roleClass: 'role-customer',
+    roleTitle: 'Hành khách',
+    desc: 'Tra cứu chuyến bay, tình trạng ghế & đặt vé',
+  },
+};
+
+const ROLE_PERMISSIONS = {
+  customer: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'fn1-membership',
+    'sp1-book',
+    'report-ticket',
+  ],
+  ticketing: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'fn1-membership',
+    'sp1-book',
+    'tg1-cancel',
+    'report-ticket',
+  ],
+  flightops: [
+    'home',
+    'sp4-search',
+    'fn2-seats',
+    'sp2-status',
+    'sp5-crew',
+    'aircraft-maintenance',
+    'fn3-aircraft',
+    'cs1-delay',
+    'cs2-payroll',
+    'report-manifest',
+    'report-crew',
+    'report-performance',
+  ],
+  admin: ['*'],
+};
+
+function canAccess(role, workflowId) {
+  if (!role || role === 'admin') return true;
+  const list = ROLE_PERMISSIONS[role] || [];
+  return list.includes(workflowId);
+}
+
+let activeRole = 'admin';
+
 function first(items, value) { return (items || []).find((item) => item.MaChuyenBay === value) || (items || [])[0]; }
 function firstValue(items, key, fallback) { return (items && items[0] && items[0][key]) || fallback; }
 
@@ -276,8 +354,12 @@ function initialParams(id, options) {
   return values;
 }
 
-async function api(url, options) {
-  const response = await fetch(url, options);
+async function api(url, options = {}) {
+  const headers = {
+    'x-user-role': activeRole,
+    ...(options.headers || {}),
+  };
+  const response = await fetch(url, { ...options, headers });
   const body = await response.json();
   if (body && body.ok === false && body.error) throw body.error;
   if (!response.ok && body.error) throw body.error;
@@ -312,7 +394,8 @@ function DataTable({ rows, empty = 'Không có bản ghi phù hợp.', compact =
   );
 }
 
-function Sidebar({ active, setActive, open, setOpen, databaseName }) {
+function Sidebar({ active, setActive, open, setOpen, databaseName, currentRole, onRoleChange }) {
+  const roleMeta = ROLES[currentRole] || ROLES.admin;
   return (
     <aside className={'sidebar' + (open ? ' open' : '')}>
       <div className="brand-row">
@@ -322,32 +405,73 @@ function Sidebar({ active, setActive, open, setOpen, databaseName }) {
       </div>
       <div className="workspace-pill"><span className="workspace-dot" />{databaseName || 'QL_CHUYENBAY'}<ChevronDown size={14} /></div>
       <nav>
-        {navGroups.map((group) => <div className="nav-group" key={group.label}>
-          <div className="nav-heading">{group.label}</div>
-          {group.items.map((item) => {
-            const Icon = item.icon;
-            return <button key={item.id} className={'nav-link' + (active === item.id ? ' active' : '')}
-              onClick={() => { setActive(item.id); setOpen(false); }}>
-              <Icon size={17} strokeWidth={1.8} /><span>{item.label}</span>
-              {item.id.startsWith('tg') && <span className="nav-tag">DB</span>}
-            </button>;
-          })}
-        </div>)}
+        {navGroups.map((group) => {
+          const visibleItems = group.items.filter((item) => canAccess(currentRole, item.id));
+          if (!visibleItems.length) return null;
+          return (
+            <div className="nav-group" key={group.label}>
+              <div className="nav-heading">{group.label}</div>
+              {visibleItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button key={item.id} className={'nav-link' + (active === item.id ? ' active' : '')}
+                    onClick={() => { setActive(item.id); setOpen(false); }}>
+                    <Icon size={17} strokeWidth={1.8} /><span>{item.label}</span>
+                    {item.id.startsWith('tg') && <span className="nav-tag">DB</span>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
       <div className="sidebar-bottom">
         <div className="db-card"><div className="db-icon"><Database size={16} /></div><div><strong>SQL Server</strong><small>{databaseName || 'Đang kiểm tra kết nối'}</small></div><span className="live-dot" /></div>
-        <div className="user-card"><div className="avatar">QT</div><div><strong>Quản trị demo</strong><small>Điều phối viên</small></div><Settings2 size={17} /></div>
+        <div className="role-switcher-card">
+          <div className="role-switcher-header">
+            <div className={'avatar ' + roleMeta.roleClass}>{roleMeta.badge}</div>
+            <div className="role-info">
+              <strong>{roleMeta.label}</strong>
+              <small>{roleMeta.roleTitle}</small>
+            </div>
+          </div>
+          <div className="role-select-wrap">
+            <label htmlFor="role-select" className="role-select-label">Vai trò mô phỏng:</label>
+            <select
+              id="role-select"
+              className="role-select"
+              value={currentRole}
+              onChange={(e) => onRoleChange(e.target.value)}
+            >
+              {Object.values(ROLES).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.badge} · {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
     </aside>
   );
 }
 
-function Topbar({ title, subtitle, setOpen, online }) {
-  return <header className="topbar">
-    <button className="icon-button menu-toggle" onClick={() => setOpen(true)} aria-label="Mở menu"><Menu size={20} /></button>
-    <div className="breadcrumbs"><span>Quản lý chuyến bay</span><span className="crumb-sep">/</span><strong>{title}</strong></div>
-    <div className="topbar-right"><div className={'connection-chip' + (online ? ' online' : ' offline')}><span />{online ? 'SQL Server kết nối' : 'Mất kết nối'}</div><div className="top-date"><CalendarDays size={15} /> 10 — 19 OCT 2026</div></div>
-  </header>;
+function Topbar({ title, subtitle, setOpen, online, currentRole }) {
+  const roleMeta = ROLES[currentRole] || ROLES.admin;
+  return (
+    <header className="topbar">
+      <button className="icon-button menu-toggle" onClick={() => setOpen(true)} aria-label="Mở menu"><Menu size={20} /></button>
+      <div className="breadcrumbs"><span>Quản lý chuyến bay</span><span className="crumb-sep">/</span><strong>{title}</strong></div>
+      <div className="topbar-right">
+        <div className={'role-pill ' + roleMeta.roleClass}>
+          <span className="role-pill-badge">{roleMeta.badge}</span>
+          <span>{roleMeta.label}</span>
+        </div>
+        <div className={'connection-chip' + (online ? ' online' : ' offline')}><span />{online ? 'SQL Server kết nối' : 'Mất kết nối'}</div>
+        <div className="top-date"><CalendarDays size={15} /> 10 — 19 OCT 2026</div>
+      </div>
+    </header>
+  );
 }
 
 function FlightStatus({ value }) {
@@ -355,35 +479,136 @@ function FlightStatus({ value }) {
   return <span className={'status-badge ' + state}><i />{value || '—'}</span>;
 }
 
-function Dashboard({ dashboard, options, setActive, reload }) {
-  const counts = dashboard && dashboard.counts || {};
-  const stats = [
-    { label: 'Chuyến bay', value: counts.ChuyenBay || 0, note: 'Trong lịch khai thác', icon: Plane, color: 'blue' },
-    { label: 'Vé đã phát hành', value: counts.VeBay || 0, note: 'Tổng vé trong hệ thống', icon: Ticket, color: 'violet' },
-    { label: 'Hành khách', value: counts.HanhKhach || 0, note: 'Hồ sơ khách hàng', icon: Users, color: 'orange' },
-    { label: 'Đội bay', value: counts.MayBay || 0, note: 'Máy bay trong danh mục', icon: PlaneTakeoff, color: 'green' },
-  ];
-  return <div className="dashboard page-enter">
-    <div className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" />TỔNG QUAN HOẠT ĐỘNG</div><h1>Xin chào, Quản trị viên <span>✦</span></h1><p>Đây là tình hình khai thác chuyến bay trong cơ sở dữ liệu QL_CHUYENBAY.</p></div><button className="button secondary" onClick={reload}><RefreshCw size={15} /> Làm mới</button></div>
-    <div className="stats-grid">{stats.map((stat) => { const Icon = stat.icon; return <div className="stat-card" key={stat.label}><div className={'stat-icon ' + stat.color}><Icon size={19} /></div><span className="stat-trend"><Activity size={12} />SQL LIVE</span><div className="stat-label">{stat.label}</div><div className="stat-value">{stat.value}</div><div className="stat-note">{stat.note}</div></div>; })}</div>
-    <div className="dashboard-grid">
-      <section className="panel flight-panel"><div className="panel-heading"><div><h2>Chuyến bay theo lịch</h2><p>Các chuyến bay trong dữ liệu mẫu · giờ UTC</p></div><button className="text-button" onClick={() => setActive('sp4-search')}>Tra cứu chuyến <ArrowRight size={14} /></button></div>
-        <DataTable rows={dashboard && dashboard.flights} empty="Chưa có dữ liệu lịch bay." compact />
-      </section>
-      <section className="panel status-panel"><div className="panel-heading"><div><h2>Trạng thái khai thác</h2><p>Phân bố chuyến theo trạng thái</p></div><div className="soft-icon"><Activity size={17} /></div></div>
-        <div className="status-list">{(dashboard && dashboard.mix || []).map((row) => <div className="status-row" key={row.TrangThai}><div><FlightStatus value={row.TrangThai} /><span className="status-number">{row.SoChuyen}</span></div><div className="status-track"><span style={{ width: Math.max(5, (row.SoChuyen / Math.max(1, counts.ChuyenBay)) * 100) + '%' }} /></div></div>)}</div>
-        <button className="wide-button" onClick={() => setActive('sp2-status')}>Cập nhật trạng thái <ArrowRight size={15} /></button>
+function Dashboard({ dashboard, options, setActive, reload, currentRole }) {
+  const counts = (dashboard && dashboard.counts) || {};
+  const roleMeta = ROLES[currentRole] || ROLES.admin;
+
+  const welcomeTitles = {
+    admin: { greeting: 'Xin chào, Quản trị viên', desc: 'Toàn quyền quản trị cơ sở dữ liệu và hệ thống báo cáo Skyroute.' },
+    flightops: { greeting: 'Xin chào, Điều phối viên', desc: 'Theo dõi lịch bay, phân công tổ bay và xử lý điều phối thời gian thực.' },
+    ticketing: { greeting: 'Xin chào, Nhân viên bán vé', desc: 'Quản lý đặt chỗ, tra cứu chuyến bay và phát hành vé điện tử.' },
+    customer: { greeting: 'Xin chào, Quý khách hàng', desc: 'Tra cứu thông tin chuyến bay, sơ đồ ghế trống và đặt vé trực tuyến.' },
+  };
+  const welcome = welcomeTitles[currentRole] || welcomeTitles.admin;
+
+  const stats = currentRole === 'customer'
+    ? [
+        { label: 'Chuyến bay', value: counts.ChuyenBay || 0, note: 'Đang mở đặt chỗ', icon: Plane, color: 'blue' },
+        { label: 'Sân bay kết nối', value: (options && options.airports ? options.airports.length : 3), note: 'Mạng lưới khai thác', icon: PlaneTakeoff, color: 'green' },
+        { label: 'Dịch vụ tra cứu', value: '24/7', note: 'Lịch bay & ghế trống', icon: Search, color: 'violet' },
+        { label: 'Tích lũy hội viên', value: 'FN1', note: 'Tra cứu hạng thẻ cá nhân', icon: Users, color: 'orange' },
+      ]
+    : currentRole === 'flightops'
+    ? [
+        { label: 'Chuyến bay', value: counts.ChuyenBay || 0, note: 'Trong lịch khai thác', icon: Plane, color: 'blue' },
+        { label: 'Đội bay', value: counts.MayBay || 0, note: 'Máy bay trong danh mục', icon: PlaneTakeoff, color: 'green' },
+        { label: 'Tổ bay', value: 'SP5', note: 'Phân công & giờ nghỉ', icon: Users, color: 'violet' },
+        { label: 'Hiệu suất', value: 'R5', note: 'Tỷ lệ đúng giờ & chậm', icon: Activity, color: 'orange' },
+      ]
+    : currentRole === 'ticketing'
+    ? [
+        { label: 'Chuyến bay', value: counts.ChuyenBay || 0, note: 'Mở bán vé', icon: Plane, color: 'blue' },
+        { label: 'Vé đã phát hành', value: counts.VeBay || 0, note: 'Tổng vé hệ thống', icon: Ticket, color: 'violet' },
+        { label: 'Hành khách', value: counts.HanhKhach || 0, note: 'Hồ sơ khách hàng', icon: Users, color: 'orange' },
+        { label: 'Sơ đồ ghế', value: 'FN2', note: 'Vị trí ghế còn mở bán', icon: PlaneTakeoff, color: 'green' },
+      ]
+    : [
+        { label: 'Chuyến bay', value: counts.ChuyenBay || 0, note: 'Trong lịch khai thác', icon: Plane, color: 'blue' },
+        { label: 'Vé đã phát hành', value: counts.VeBay || 0, note: 'Tổng vé trong hệ thống', icon: Ticket, color: 'violet' },
+        { label: 'Hành khách', value: counts.HanhKhach || 0, note: 'Hồ sơ khách hàng', icon: Users, color: 'orange' },
+        { label: 'Đội bay', value: counts.MayBay || 0, note: 'Máy bay trong danh mục', icon: PlaneTakeoff, color: 'green' },
+      ];
+
+  const quickItemsByRole = {
+    admin: [
+      ['sp1-book', 'Đặt chỗ & bán vé', 'Tạo vé, kiểm tra ghế trống', Ticket, 'quick-blue'],
+      ['sp5-crew', 'Phân công tổ bay', 'Xếp lịch và kiểm tra thời gian nghỉ', Users, 'quick-violet'],
+      ['tg2-test', 'Kiểm tra Trigger', 'Thử quy tắc chặn hủy dưới 24h', ShieldCheck, 'quick-orange'],
+      ['report-revenue', 'Báo cáo doanh thu', 'Xem kết quả theo đường bay', BarChart3, 'quick-green'],
+    ],
+    flightops: [
+      ['sp2-status', 'Cập nhật chuyến bay', 'Ghi nhận Delay hoặc Hủy chuyến', PlaneTakeoff, 'quick-blue'],
+      ['sp5-crew', 'Phân công tổ bay', 'Gán nhân sự và kiểm tra ca nghỉ', Users, 'quick-violet'],
+      ['cs1-delay', 'Bồi thường Delay', 'Tính tiền bồi thường hành khách', WalletCards, 'quick-orange'],
+      ['report-performance', 'Hiệu suất khai thác', 'Báo cáo R5 tỷ lệ đúng giờ', Activity, 'quick-green'],
+    ],
+    ticketing: [
+      ['sp4-search', 'Tra cứu chuyến bay', 'Kiểm tra lịch bay & giờ khởi hành', Search, 'quick-blue'],
+      ['sp1-book', 'Đặt chỗ & bán vé', 'SP1 tạo vé & giữ chỗ hành khách', Ticket, 'quick-violet'],
+      ['tg1-cancel', 'Hủy vé / hoàn ghế', 'TG1 tự động hoàn lại ghế trống', RefreshCw, 'quick-orange'],
+      ['report-ticket', 'Vé điện tử R1', 'Xem và in vé điện tử hành khách', FileCheck2, 'quick-green'],
+    ],
+    customer: [
+      ['sp4-search', 'Tra cứu chuyến bay', 'Tìm chuyến theo ngày & điểm đến', Search, 'quick-blue'],
+      ['sp1-book', 'Đặt vé trực tuyến', 'Điền thông tin và chọn hạng ghế', Ticket, 'quick-violet'],
+      ['fn2-seats', 'Sơ đồ ghế trống', 'Xem vị trí ghế còn mở bán', Ticket, 'quick-orange'],
+      ['fn1-membership', 'Hạng hội viên', 'Tra cứu ưu đãi thẻ tích lũy', Users, 'quick-green'],
+    ],
+  };
+
+  return (
+    <div className="dashboard page-enter">
+      <div className="welcome-row">
+        <div>
+          <div className="eyebrow"><span className="eyebrow-line" />TỔNG QUAN HOẠT ĐỘNG · {roleMeta.label.toUpperCase()}</div>
+          <h1>{welcome.greeting} <span>✦</span></h1>
+          <p>{welcome.desc}</p>
+        </div>
+        <button className="button secondary" onClick={reload}><RefreshCw size={15} /> Làm mới</button>
+      </div>
+      <div className="stats-grid">
+        {stats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div className="stat-card" key={stat.label}>
+              <div className={'stat-icon ' + stat.color}><Icon size={19} /></div>
+              <span className="stat-trend"><Activity size={12} />SQL LIVE</span>
+              <div className="stat-label">{stat.label}</div>
+              <div className="stat-value">{stat.value}</div>
+              <div className="stat-note">{stat.note}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="dashboard-grid">
+        <section className="panel flight-panel">
+          <div className="panel-heading">
+            <div><h2>Chuyến bay theo lịch</h2><p>Các chuyến bay trong dữ liệu mẫu · giờ UTC</p></div>
+            <button className="text-button" onClick={() => setActive('sp4-search')}>Tra cứu chuyến <ArrowRight size={14} /></button>
+          </div>
+          <DataTable rows={dashboard && dashboard.flights} empty="Chưa có dữ liệu lịch bay." compact />
+        </section>
+        <section className="panel status-panel">
+          <div className="panel-heading"><div><h2>Trạng thái khai thác</h2><p>Phân bố chuyến theo trạng thái</p></div><div className="soft-icon"><Activity size={17} /></div></div>
+          <div className="status-list">
+            {(dashboard && dashboard.mix || []).map((row) => (
+              <div className="status-row" key={row.TrangThai}>
+                <div><FlightStatus value={row.TrangThai} /><span className="status-number">{row.SoChuyen}</span></div>
+                <div className="status-track"><span style={{ width: Math.max(5, (row.SoChuyen / Math.max(1, counts.ChuyenBay || 1)) * 100) + '%' }} /></div>
+              </div>
+            ))}
+          </div>
+          {canAccess(currentRole, 'sp2-status') ? (
+            <button className="wide-button" onClick={() => setActive('sp2-status')}>Cập nhật trạng thái <ArrowRight size={15} /></button>
+          ) : (
+            <button className="wide-button" onClick={() => setActive('sp4-search')}>Tra cứu chuyến bay <ArrowRight size={15} /></button>
+          )}
+        </section>
+      </div>
+      <section className="quick-panel panel">
+        <div className="panel-heading"><div><h2>Truy cập nhanh</h2><p>Đi thẳng đến tác vụ thường dùng theo quyền của bạn</p></div></div>
+        <div className="quick-grid">
+          {(quickItemsByRole[currentRole] || quickItemsByRole.admin).map(([id, title, note, Icon, tint]) => (
+            <button key={id} className="quick-item" onClick={() => setActive(id)}>
+              <div className={'quick-icon ' + tint}><Icon size={19} /></div>
+              <div><strong>{title}</strong><small>{note}</small></div>
+              <ArrowRight size={16} className="quick-arrow" />
+            </button>
+          ))}
+        </div>
       </section>
     </div>
-    <section className="quick-panel panel"><div className="panel-heading"><div><h2>Truy cập nhanh</h2><p>Đi thẳng đến tác vụ thường dùng</p></div></div><div className="quick-grid">
-      {[
-        ['sp1-book', 'Đặt chỗ & bán vé', 'Tạo vé, kiểm tra ghế trống', Ticket, 'quick-blue'],
-        ['sp5-crew', 'Phân công tổ bay', 'Xếp lịch và kiểm tra thời gian nghỉ', Users, 'quick-violet'],
-        ['tg2-test', 'Kiểm tra Trigger', 'Thử quy tắc chặn hủy dưới 24h', ShieldCheck, 'quick-orange'],
-        ['report-revenue', 'Báo cáo doanh thu', 'Xem kết quả theo đường bay', FileBarChart2, 'quick-green'],
-      ].map(([id, title, note, Icon, tint]) => <button key={id} className="quick-item" onClick={() => setActive(id)}><div className={'quick-icon ' + tint}><Icon size={19} /></div><div><strong>{title}</strong><small>{note}</small></div><ArrowRight size={16} className="quick-arrow" /></button>)}
-    </div></section>
-  </div>;
+  );
 }
 
 function getFieldOptions(field, options) {
@@ -451,8 +676,27 @@ function exportReportCSV(workflow, recordsets) {
   URL.revokeObjectURL(url);
 }
 
-function Workflow({ id, options, setActive }) {
+function Workflow({ id, options, setActive, currentRole }) {
   const workflow = workflows[id];
+  if (!workflow) return <div className="notice notice-amber">Không tìm thấy luồng nghiệp vụ.</div>;
+
+  if (!canAccess(currentRole, id)) {
+    const roleMeta = ROLES[currentRole] || { label: currentRole };
+    return (
+      <div className="forbidden-card panel page-enter">
+        <div className="forbidden-icon"><ShieldCheck size={28} /></div>
+        <h2>Quyền truy cập bị từ chối (403 Forbidden)</h2>
+        <p>Vai trò <strong>{roleMeta.label}</strong> không có quyền truy cập chức năng <code>{workflow.code} · {workflow.title}</code>.</p>
+        <p style={{ marginTop: 8, fontSize: '11px', color: '#9a3412' }}>Theo ma trận phân quyền hệ thống, chỉ các vai trò được cấp phép mới có thể xem và thực thi chức năng này.</p>
+        <div className="forbidden-actions">
+          <button className="button primary" onClick={() => setActive('home')}>
+            Quay về Trang chủ
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const [params, setParams] = useState(() => initialParams(id, options));
   const stateRequestId = useRef(0);
   const [before, setBefore] = useState(null);
@@ -586,6 +830,7 @@ function Workflow({ id, options, setActive }) {
 
 function App() {
   const [active, setActive] = useState('home');
+  const [currentRole, setCurrentRole] = useState('admin');
   const [menuOpen, setMenuOpen] = useState(false);
   const [options, setOptions] = useState(null);
   const [dashboard, setDashboard] = useState(null);
@@ -595,9 +840,10 @@ function App() {
   const activeWorkflow = workflows[active];
   const activeTitle = activeWorkflow ? activeWorkflow.title : 'Tổng quan';
 
-  async function reloadDashboard() {
+  async function reloadDashboard(roleOverride) {
     setLoading(true);
     try {
+      if (roleOverride) activeRole = roleOverride;
       const [healthResult, optionResult, dashboardResult] = await Promise.all([
         api('/api/health'), api('/api/options'), api('/api/dashboard'),
       ]);
@@ -611,15 +857,64 @@ function App() {
     } finally { setLoading(false); }
   }
 
+  function handleRoleChange(newRole) {
+    activeRole = newRole;
+    setCurrentRole(newRole);
+    if (!canAccess(newRole, active)) {
+      setActive('home');
+    }
+    reloadDashboard(newRole);
+  }
+
   useEffect(() => { reloadDashboard(); }, []);
   const databaseName = health && health.databaseName || 'QL_CHUYENBAY';
 
   return <div className="app-shell">
-    <Sidebar active={active} setActive={setActive} open={menuOpen} setOpen={setMenuOpen} databaseName={databaseName} />
+    <Sidebar
+      active={active}
+      setActive={setActive}
+      open={menuOpen}
+      setOpen={setMenuOpen}
+      databaseName={databaseName}
+      currentRole={currentRole}
+      onRoleChange={handleRoleChange}
+    />
     {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Đóng menu" />}
-    <main className="main-area"><Topbar title={activeTitle} setOpen={setMenuOpen} online={Boolean(health && health.ok)} />
+    <main className="main-area">
+      <Topbar
+        title={activeTitle}
+        setOpen={setMenuOpen}
+        online={Boolean(health && health.ok)}
+        currentRole={currentRole}
+      />
       <div className="content-area">
-        {loading && !options ? <div className="app-loading"><span className="spinner" /><strong>Đang kết nối SQL Server…</strong></div> : bootError ? <div className="connection-error panel"><div className="connection-error-icon"><Database size={22} /></div><h1>Chưa kết nối được cơ sở dữ liệu</h1><p>{bootError.message || 'Hãy kiểm tra SQL Server và cấu hình DB_USER, DB_PASSWORD trong file .env.'}</p><div className="connection-help">Kiểm tra container SQL Server đang chạy, sau đó cấu hình thông tin đăng nhập cho tài khoản ứng dụng rồi thử lại.</div><button className="button primary" onClick={reloadDashboard}><RefreshCw size={15} /> Thử kết nối lại</button></div> : active === 'home' ? <Dashboard dashboard={dashboard} options={options} setActive={setActive} reload={reloadDashboard} /> : <Workflow key={active} id={active} options={options} setActive={setActive} />}
+        {loading && !options ? (
+          <div className="app-loading"><span className="spinner" /><strong>Đang kết nối SQL Server…</strong></div>
+        ) : bootError ? (
+          <div className="connection-error panel">
+            <div className="connection-error-icon"><Database size={22} /></div>
+            <h1>Chưa kết nối được cơ sở dữ liệu</h1>
+            <p>{bootError.message || 'Hãy kiểm tra SQL Server và cấu hình DB_USER, DB_PASSWORD trong file .env.'}</p>
+            <div className="connection-help">Kiểm tra container SQL Server đang chạy, sau đó cấu hình thông tin đăng nhập cho tài khoản ứng dụng rồi thử lại.</div>
+            <button className="button primary" onClick={() => reloadDashboard(currentRole)}><RefreshCw size={15} /> Thử kết nối lại</button>
+          </div>
+        ) : active === 'home' ? (
+          <Dashboard
+            dashboard={dashboard}
+            options={options}
+            setActive={setActive}
+            reload={() => reloadDashboard(currentRole)}
+            currentRole={currentRole}
+          />
+        ) : (
+          <Workflow
+            key={active + '-' + currentRole}
+            id={active}
+            options={options}
+            setActive={setActive}
+            currentRole={currentRole}
+          />
+        )}
       </div>
       <footer className="app-footer"><span>© 2026 Skyroute Flight Operations</span><span>QLCB DEMO <i /> SQL Server</span></footer>
     </main>
