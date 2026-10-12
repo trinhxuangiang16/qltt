@@ -333,7 +333,22 @@ function initialParams(id, options = {}) {
   for (const field of fields) {
     if (field.source === 'flights') values[field.key] = flight && flight.MaChuyenBay || defaultFlightCode;
     else if (field.source === 'tg2Flights') values[field.key] = firstValue(opts.tg2Flights, 'MaChuyenBay', 'VN522');
-    else if (field.source === 'airports') values[field.key] = field.key === 'MaSanBayDi' ? 'SGN' : 'HAN';
+    else if (field.source === 'airports') {
+      if (id === 'sp4-search') {
+        if (field.key === 'MaSanBayDi') {
+          values[field.key] = 'SGN';
+        } else if (field.key === 'MaSanBayDen') {
+          const validDests = Array.from(new Set(
+            (opts.flights || [])
+              .filter((row) => row.MaSanBayDi === 'SGN')
+              .map((row) => row.MaSanBayDen)
+          ));
+          values[field.key] = validDests.includes('HAN') ? 'HAN' : (validDests[0] || 'HAN');
+        }
+      } else {
+        values[field.key] = field.key === 'MaSanBayDi' ? 'SGN' : 'HAN';
+      }
+    }
     else if (field.source === 'passengers') values[field.key] = firstValue(opts.passengers, 'MaHanhKhach', 'HK01');
     else if (field.source === 'employees') values[field.key] = 'NV01';
     else if (field.source === 'aircraft') values[field.key] = firstValue(opts.aircraft, 'MaMayBay', 'MB01');
@@ -349,7 +364,10 @@ function initialParams(id, options = {}) {
     else if (field.key === 'LyDo') values[field.key] = id === 'tg2-test' ? 'Kiểm thử trigger TG2' : 'Điều chỉnh kế hoạch khai thác';
     else if (field.key === 'TuNgay') values[field.key] = '2026-10-01';
     else if (field.key === 'DenNgay') values[field.key] = '2026-10-31';
-    else if (field.key === 'NgayBay') values[field.key] = id === 'report-crew' ? '2026-10-14' : '2026-10-10';
+    else if (field.key === 'NgayBay') {
+      const today = new Date().toISOString().slice(0, 10);
+      values[field.key] = id === 'sp4-search' ? today : (id === 'report-crew' ? '2026-10-14' : '2026-10-10');
+    }
     else if (field.key === 'MaNV') values[field.key] = 'NV01';
     else if (field.key === 'VaiTro') values[field.key] = 'Cơ trưởng';
     else if (field.key === 'GioBatDauMoi') values[field.key] = '2026-10-17T17:30';
@@ -620,7 +638,17 @@ function Dashboard({ dashboard, options, setActive, reload, currentRole }) {
   );
 }
 
-function getFieldOptions(field, options) {
+function getFieldOptions(field, options, params, id) {
+  if (id === 'sp4-search' && field.key === 'MaSanBayDen') {
+    const validDestCodes = new Set(
+      (options.flights || [])
+        .filter((row) => row.MaSanBayDi === (params && params.MaSanBayDi))
+        .map((row) => row.MaSanBayDen)
+    );
+    return (options.airports || [])
+      .filter((row) => validDestCodes.has(row.MaSanBay))
+      .map((row) => ({ value: row.MaSanBay, label: row.MaSanBay + ' · ' + row.TenSanBay }));
+  }
   if (field.source === 'flights') return (options.flights || []).map((row) => ({ value: row.MaChuyenBay, label: row.MaChuyenBay + ' · ' + row.MaSanBayDi + ' → ' + row.MaSanBayDen + ' · ' + row.TrangThai }));
   if (field.source === 'tg2Flights') return (options.tg2Flights || []).map((row) => ({ value: row.MaChuyenBay, label: row.MaChuyenBay + ' · ' + row.MaSanBayDi + ' → ' + row.MaSanBayDen + ' · còn dưới 24 giờ' }));
   if (field.source === 'airports') return (options.airports || []).map((row) => ({ value: row.MaSanBay, label: row.MaSanBay + ' · ' + row.TenSanBay }));
@@ -633,16 +661,55 @@ function getFieldOptions(field, options) {
   return (field.choices || []).map((value) => ({ value, label: value }));
 }
 
-function WorkflowFields({ fields, params, setParams, options }) {
+function WorkflowFields({ id, fields, params, setParams, options }) {
   if (!fields.length) return <div className="no-inputs"><CheckCircle2 size={16} /> Luồng này không cần tham số đầu vào.</div>;
+  const today = new Date().toISOString().slice(0, 10);
   return <div className="form-grid">{fields.map((field) => {
-    const choices = getFieldOptions(field, options);
+    const choices = getFieldOptions(field, options, params, id);
+    const isEmptyDest = id === 'sp4-search' && field.key === 'MaSanBayDen' && !choices.length;
     return <label className={'form-field' + (field.type === 'textarea' ? ' span-2' : '')} key={field.key}>
       <span>{field.label}{field.required && <i>*</i>}</span>
-      {field.source || field.type === 'select' ? <select required={Boolean(field.required)} value={params[field.key] || ''} onChange={(event) => setParams({ ...params, [field.key]: event.target.value })}>
-        {!choices.length && <option value="">Không có dữ liệu</option>}{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-      </select> : field.type === 'textarea' ? <textarea value={params[field.key] || ''} placeholder={field.placeholder || ''} onChange={(event) => setParams({ ...params, [field.key]: event.target.value })} rows={3} />
-        : <input required={Boolean(field.required)} maxLength={field.key === 'MaVe' || field.key === 'MaDatCho' ? 20 : undefined} type={field.type || 'text'} value={params[field.key] || ''} placeholder={field.placeholder || ''} min={field.type === 'number' ? '1' : undefined} max={field.key === 'Thang' ? '12' : undefined} onChange={(event) => setParams({ ...params, [field.key]: event.target.value })} />}
+      {field.source || field.type === 'select' ? (
+        <>
+          <select
+            required={Boolean(field.required)}
+            value={params[field.key] || ''}
+            onChange={(event) => setParams({ ...params, [field.key]: event.target.value })}
+          >
+            {isEmptyDest ? (
+              <option value="">Không có chuyến bay từ sân bay này, vui lòng chọn điểm đến khác</option>
+            ) : !choices.length ? (
+              <option value="">Không có dữ liệu</option>
+            ) : null}
+            {choices.map((choice) => (
+              <option key={choice.value} value={choice.value}>{choice.label}</option>
+            ))}
+          </select>
+          {isEmptyDest && (
+            <small style={{ color: '#dc2626', fontSize: '11px', marginTop: 4, display: 'block', fontWeight: 500 }}>
+              ⚠️ Không có chuyến bay từ sân bay này, vui lòng chọn điểm đến khác.
+            </small>
+          )}
+        </>
+      ) : field.type === 'textarea' ? (
+        <textarea
+          value={params[field.key] || ''}
+          placeholder={field.placeholder || ''}
+          onChange={(event) => setParams({ ...params, [field.key]: event.target.value })}
+          rows={3}
+        />
+      ) : (
+        <input
+          required={Boolean(field.required)}
+          maxLength={field.key === 'MaVe' || field.key === 'MaDatCho' ? 20 : undefined}
+          type={field.type || 'text'}
+          value={params[field.key] || ''}
+          placeholder={field.placeholder || ''}
+          min={id === 'sp4-search' && field.key === 'NgayBay' ? today : (field.type === 'number' ? '1' : undefined)}
+          max={field.key === 'Thang' ? '12' : undefined}
+          onChange={(event) => setParams({ ...params, [field.key]: event.target.value })}
+        />
+      )}
     </label>;
   })}</div>;
 }
@@ -719,7 +786,18 @@ function Workflow({ id, options, setActive, currentRole }) {
   const formValidation = useMemo(() => {
     const missing = workflow.fields.filter((field) => field.required && !String(params[field.key] || '').trim());
     if (missing.length) return 'Cần nhập hoặc chọn: ' + missing.map((field) => field.label).join(', ') + '.';
-    if (id === 'sp4-search' && params.MaSanBayDi === params.MaSanBayDen) return 'Sân bay đi và sân bay đến phải khác nhau.';
+    if (id === 'sp4-search') {
+      const today = new Date().toISOString().slice(0, 10);
+      if (params.NgayBay && params.NgayBay < today) return 'Ngày khởi hành không được trước hôm nay (' + today + ').';
+      const validDestCodes = Array.from(new Set(
+        (options.flights || [])
+          .filter((row) => row.MaSanBayDi === params.MaSanBayDi)
+          .map((row) => row.MaSanBayDen)
+      ));
+      if (!validDestCodes.length) return 'Không có chuyến bay từ sân bay này, vui lòng chọn điểm đến khác.';
+      if (!params.MaSanBayDen || !validDestCodes.includes(params.MaSanBayDen)) return 'Vui lòng chọn sân bay đến có chuyến bay.';
+      if (params.MaSanBayDi === params.MaSanBayDen) return 'Sân bay đi và sân bay đến phải khác nhau.';
+    }
     if (['sp3-revenue', 'cs2-payroll', 'report-revenue', 'report-performance'].includes(id) && params.TuNgay > params.DenNgay) return 'Từ ngày phải nhỏ hơn hoặc bằng Đến ngày.';
     if (id === 'fn3-aircraft' && (Number(params.Thang) < 1 || Number(params.Thang) > 12 || !Number.isInteger(Number(params.Nam)))) return 'Tháng cần từ 1 đến 12 và năm phải là số nguyên.';
     if (id === 'price-update') {
@@ -765,6 +843,16 @@ function Workflow({ id, options, setActive, currentRole }) {
     if (id === 'sp5-crew' && next.MaNV !== params.MaNV) {
       const employee = (options.employees || []).find((row) => row.MaNV === next.MaNV);
       if (employee) next = { ...next, VaiTro: employee.ChucVu };
+    }
+    if (id === 'sp4-search' && next.MaSanBayDi !== params.MaSanBayDi) {
+      const validDestCodes = Array.from(new Set(
+        (options.flights || [])
+          .filter((row) => row.MaSanBayDi === next.MaSanBayDi)
+          .map((row) => row.MaSanBayDen)
+      ));
+      if (!validDestCodes.includes(next.MaSanBayDen)) {
+        next = { ...next, MaSanBayDen: validDestCodes[0] || '' };
+      }
     }
     stateRequestId.current += 1;
     setParams(next);
@@ -829,7 +917,7 @@ function Workflow({ id, options, setActive, currentRole }) {
         {loadingState && <div className="loading-line"><span className="spinner" /> Đang truy vấn dữ liệu...</div>}
         {before && <div className="state-tables">{before.map((table, index) => <section className="data-section" key={table.title}><div className="data-title"><span className="data-index">0{index + 1}</span><strong>{table.title}</strong><span className="row-count">{table.rows.length} dòng</span></div><DataTable rows={table.rows} /></section>)}</div>}
       </div></div>
-      <div className="workflow-step action-step"><StepHeading number="4" title="Thực thi nghiệp vụ" hint="Nút gọi đúng stored procedure hoặc DML để kích hoạt trigger" done={Boolean(hasResult)} active={Boolean(before) && !hasResult} /><div className="step-content"><WorkflowFields fields={workflow.fields} params={params} setParams={changeParams} options={options} />{formValidation && <div className="notice notice-amber validation-note"><AlertTriangle size={15} />{formValidation}</div>}<div className="execute-box"><div className="execute-context"><div className="execute-icon"><Zap size={18} fill="currentColor" /></div><div><strong>{workflow.action}</strong><small>{workflow.fields.length ? 'Kiểm tra lại các tham số trước khi chạy.' : 'Thao tác chỉ đọc dữ liệu và trả kết quả mới nhất.'}</small></div></div><button className="button primary" onClick={execute} disabled={!before || dirty || loadingState || running || Boolean(formValidation)}>{running ? <><span className="button-spinner" /> Đang xử lý...</> : <><Zap size={16} />{workflow.action}</>}</button></div></div></div>
+      <div className="workflow-step action-step"><StepHeading number="4" title="Thực thi nghiệp vụ" hint="Nút gọi đúng stored procedure hoặc DML để kích hoạt trigger" done={Boolean(hasResult)} active={Boolean(before) && !hasResult} /><div className="step-content"><WorkflowFields id={id} fields={workflow.fields} params={params} setParams={changeParams} options={options} />{formValidation && <div className="notice notice-amber validation-note"><AlertTriangle size={15} />{formValidation}</div>}<div className="execute-box"><div className="execute-context"><div className="execute-icon"><Zap size={18} fill="currentColor" /></div><div><strong>{workflow.action}</strong><small>{workflow.fields.length ? 'Kiểm tra lại các tham số trước khi chạy.' : 'Thao tác chỉ đọc dữ liệu và trả kết quả mới nhất.'}</small></div></div><button className="button primary" onClick={execute} disabled={!before || dirty || loadingState || running || Boolean(formValidation)}>{running ? <><span className="button-spinner" /> Đang xử lý...</> : <><Zap size={16} />{workflow.action}</>}</button></div></div></div>
       <div className="workflow-step result-step"><StepHeading number="5" title="Tải lại và kiểm chứng kết quả" hint="Bảng sau thao tác hoặc mã lỗi SQL Server cùng dữ liệu đã làm mới" done={Boolean(after)} active={Boolean(hasResult)} /><div className="step-content">
         {!hasResult && <div className="result-placeholder"><div className="placeholder-icon"><ArrowDownRight size={19} /></div><div><strong>Kết quả sẽ hiển thị tại đây</strong><p>Sau khi thực thi, hệ thống tự truy vấn lại các bảng liên quan.</p></div></div>}
         {hasResult && <>
